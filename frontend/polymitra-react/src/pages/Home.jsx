@@ -24,32 +24,32 @@ export default function Home() {
 function Hero() {
   return (
     <section className="bg-hero-gradient relative overflow-hidden">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-16 pb-24 lg:pt-24 lg:pb-32">
-        <div className="grid gap-12 lg:grid-cols-2 lg:gap-16 items-center">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-10 pb-14 sm:pt-14 sm:pb-20 lg:pt-24 lg:pb-32">
+        <div className="grid gap-10 lg:grid-cols-2 lg:gap-16 items-center">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
             <div className="inline-flex items-center gap-2 rounded-full border border-brand/20 bg-white/70 px-3 py-1 text-xs font-medium text-brand">
               <Sparkles className="h-3.5 w-3.5" />
               Admission Season 2025 · CAP Rounds Live
             </div>
-            <h1 className="mt-5 font-display text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight">
+            <h1 className="mt-4 font-display text-3xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.08] tracking-tight">
               Maharashtra Polytechnic <span className="text-gradient-brand">Admission Helper</span>
             </h1>
-            <p className="mt-5 max-w-xl text-base sm:text-lg text-muted-foreground leading-relaxed">
+            <p className="mt-4 max-w-xl text-sm sm:text-lg text-muted-foreground leading-relaxed">
               Find previous year cutoffs, explore colleges, and predict your
               admission chances using an ML model — all in one clean, trustworthy dashboard.
             </p>
-            <div className="mt-8 flex flex-wrap gap-3">
+            <div className="mt-6 flex flex-wrap gap-3">
               <Link to="/colleges"><Button size="lg" className="shadow-elegant"><Building2 className="h-4 w-4" /> Explore Colleges</Button></Link>
               <Link to="/predictor"><Button size="lg" variant="outline"><Sparkles className="h-4 w-4" /> Predict Admission</Button></Link>
             </div>
-            <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
+            <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
               <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-4 w-4 text-success" /> DTE-aligned data</span>
               <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4 text-success" /> 3 years of records</span>
               <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4 text-success" /> Free for students</span>
             </div>
           </motion.div>
 
-          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.15 }}>
+          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.15 }} className="hidden lg:block">
             <HeroVisual />
           </motion.div>
         </div>
@@ -67,33 +67,33 @@ function HeroVisual() {
   ];
   return (
     <div className="relative">
-      <div className="relative rounded-3xl border border-border bg-white shadow-card p-6 sm:p-8">
+      <div className="relative rounded-3xl border border-border bg-white shadow-card p-5 sm:p-8">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs font-medium text-muted-foreground">Live Snapshot</p>
-            <h3 className="mt-1 font-display font-bold text-lg">Maharashtra CAP 2025</h3>
+            <h3 className="mt-1 font-display font-bold text-base sm:text-lg">Maharashtra CAP 2025</h3>
           </div>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 text-success px-2.5 py-1 text-xs font-medium">
             <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" /> Round 1 Open
           </span>
         </div>
-        <div className="mt-6 grid grid-cols-2 gap-3">
+        <div className="mt-5 grid grid-cols-2 gap-2 sm:gap-3">
           {cards.map((c, i) => (
-            <motion.div key={c.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 + i * 0.08 }} className="rounded-xl border border-border bg-surface p-4">
-              <div className={`grid h-9 w-9 place-items-center rounded-lg ${c.tint === "brand" ? "bg-brand/10 text-brand" : "bg-success/10 text-success"}`}>
-                <c.icon className="h-5 w-5" />
+            <motion.div key={c.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 + i * 0.08 }} className="rounded-xl border border-border bg-surface p-3 sm:p-4">
+              <div className={`grid h-8 w-8 sm:h-9 sm:w-9 place-items-center rounded-lg ${c.tint === "brand" ? "bg-brand/10 text-brand" : "bg-success/10 text-success"}`}>
+                <c.icon className="h-4 w-4 sm:h-5 sm:w-5" />
               </div>
-              <p className="mt-3 text-xs text-muted-foreground">{c.label}</p>
-              <p className="mt-0.5 font-display text-xl font-bold">{c.value}</p>
+              <p className="mt-2 sm:mt-3 text-xs text-muted-foreground">{c.label}</p>
+              <p className="mt-0.5 font-display text-lg sm:text-xl font-bold">{c.value}</p>
             </motion.div>
           ))}
         </div>
-        <div className="mt-6 rounded-xl border border-border p-4">
+        <div className="mt-4 sm:mt-6 rounded-xl border border-border p-3 sm:p-4">
           <div className="flex items-center justify-between text-xs">
             <span className="font-medium">Cutoff Trend · Computer Engg</span>
             <span className="text-muted-foreground">2023 → 2025</span>
           </div>
-          <div className="mt-3 flex items-end gap-2 h-24">
+          <div className="mt-3 flex items-end gap-1 sm:gap-2 h-16 sm:h-24">
             {[62, 70, 74, 78, 82, 85, 88, 91, 94].map((h, i) => (
               <motion.div key={i} initial={{ height: 0 }} animate={{ height: `${h}%` }} transition={{ duration: 0.7, delay: 0.4 + i * 0.05 }} className="flex-1 rounded-t-md bg-gradient-to-t from-brand to-brand/40" />
             ))}
@@ -219,15 +219,15 @@ function Why() {
 
 function CTA() {
   return (
-    <section className="pb-24">
+    <section className="pb-16 sm:pb-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="rounded-3xl bg-gradient-to-br from-brand to-blue-800 p-10 sm:p-14 text-white shadow-elegant">
+        <div className="rounded-3xl bg-gradient-to-br from-brand to-blue-800 p-8 sm:p-14 text-white shadow-elegant">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
             <div>
-              <h3 className="font-display text-2xl sm:text-3xl font-extrabold max-w-xl leading-tight">Ready to find the right polytechnic college?</h3>
+              <h3 className="font-display text-xl sm:text-3xl font-extrabold max-w-xl leading-tight">Ready to find the right polytechnic college?</h3>
               <p className="mt-3 text-sm sm:text-base text-white/85 max-w-xl">Run your first prediction in under a minute. Free, ad-free, and built for Maharashtra CAP.</p>
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               <Link to="/predictor"><Button size="lg" variant="secondary">Try Predictor <ArrowRight className="h-4 w-4" /></Button></Link>
               <Link to="/colleges"><Button size="lg" variant="outline" className="!bg-transparent !border-white/40 !text-white hover:!bg-white/10">Browse Colleges</Button></Link>
             </div>

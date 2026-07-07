@@ -140,17 +140,17 @@ export default function Predictor() {
   return (
     <SiteLayout>
       <section className="bg-hero-gradient border-b border-border">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-14 lg:py-20">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 sm:py-12 lg:py-16">
           <SectionHeading
             eyebrow="Admission Predictor"
-            title="Predict your polytechnic admission chances"
+            title="Predict your admission chances"
             desc="Enter your SSC percentage, select a college and branch. Our ML model estimates your cutoff and admission probability using historical CAP data."
           />
         </div>
       </section>
 
-      <section className="py-10 lg:py-14">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 grid gap-8 lg:grid-cols-5">
+      <section className="py-6 sm:py-10 lg:py-14">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 grid gap-6 lg:grid-cols-5">
           {/* ── Form ── */}
           <div className="lg:col-span-2">
             <div className="rounded-2xl border border-border bg-card p-6 sm:p-7 shadow-card lg:sticky lg:top-20">
@@ -319,14 +319,14 @@ function LoadingResults() {
 
 function EmptyPrediction() {
   return (
-    <div className="rounded-2xl border border-dashed border-border bg-surface p-14 text-center h-full grid place-items-center">
+    <div className="rounded-2xl border border-dashed border-border bg-surface p-8 sm:p-14 text-center h-full grid place-items-center">
       <div>
-        <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-brand/10 text-brand">
-          <Target className="h-7 w-7" />
+        <div className="mx-auto grid h-14 w-14 sm:h-16 sm:w-16 place-items-center rounded-2xl bg-brand/10 text-brand">
+          <Target className="h-6 w-6 sm:h-7 sm:w-7" />
         </div>
-        <h3 className="mt-5 font-display text-xl font-bold">Ready when you are</h3>
+        <h3 className="mt-4 font-display text-lg sm:text-xl font-bold">Ready when you are</h3>
         <p className="mt-2 text-sm text-muted-foreground max-w-sm mx-auto">
-          Select a college, branch and category on the left, then hit Predict to see your admission probability.
+          Select a college, branch and category above, then hit Predict to see your admission probability.
         </p>
       </div>
     </div>
@@ -382,9 +382,9 @@ function ResultCard({ result, college, branch }) {
       </div>
 
       {/* Stats grid */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
         <StatBox label="Your Score" value={`${student_percentage}%`} tone="brand" />
-        <StatBox label="Predicted Cutoff" value={`${predicted_cutoff?.toFixed(2)}%`} tone="neutral" />
+        <StatBox label="Cutoff" value={`${predicted_cutoff?.toFixed(2)}%`} tone="neutral" />
         <StatBox label="Probability" value={`${probability?.toFixed(1)}%`} tone={probability >= 60 ? "success" : probability >= 35 ? "warning" : "destructive"} />
       </div>
 
@@ -414,9 +414,9 @@ function StatBox({ label, value, tone }) {
     neutral: "text-foreground bg-surface",
   };
   return (
-    <div className={`rounded-xl p-4 text-center ${colors[tone] || colors.neutral}`}>
-      <p className="text-[10px] uppercase tracking-wider font-semibold opacity-70">{label}</p>
-      <p className="font-display text-lg font-extrabold mt-1 leading-none">{value}</p>
+    <div className={`rounded-xl p-3 sm:p-4 text-center ${colors[tone] || colors.neutral}`}>
+      <p className="text-[9px] sm:text-[10px] uppercase tracking-wider font-semibold opacity-70">{label}</p>
+      <p className="font-display text-base sm:text-lg font-extrabold mt-1 leading-none">{value}</p>
     </div>
   );
 }
