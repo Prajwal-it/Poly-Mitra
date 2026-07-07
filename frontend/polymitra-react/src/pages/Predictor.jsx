@@ -57,6 +57,7 @@ export default function Predictor() {
   const [branchesLoading, setBranchesLoading] = useState(false);
 
   const [loading, setLoading] = useState(false);
+  const [warmingUp, setWarmingUp] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
@@ -102,22 +103,37 @@ export default function Predictor() {
 
   const onPredict = async () => {
     setLoading(true);
+    setWarmingUp(false);
     setResult(null);
     setError(null);
+
+    const payload = {
+      percentage: Number(percentage),
+      college,
+      branch,
+      category,
+      round: Number(round),
+      year: 2026,
+      quota,
+    };
+
+    // Warm-up notice after 5 seconds of waiting
+    const warmTimer = setTimeout(() => setWarmingUp(true), 5000);
+
     try {
-      const res = await postPredict({
-        percentage: Number(percentage),
-        college,
-        branch,
-        category,
-        round: Number(round),
-        year: 2026,
-        quota,
-      });
+      const res = await postPredict(payload);
       setResult(res.data);
     } catch (e) {
-      setError(e.message || "Prediction failed. Make sure the ML service is running.");
+      const msg = e.message || "";
+      // 502/504/network errors → cold start message
+      if (msg.includes("502") || msg.includes("504") || msg.includes("Failed to fetch") || msg.includes("network")) {
+        setError("The ML prediction server is warming up (it sleeps after inactivity). Please wait 30–60 seconds and try again.");
+      } else {
+        setError(msg || "Prediction failed. Please check your inputs and try again.");
+      }
     } finally {
+      clearTimeout(warmTimer);
+      setWarmingUp(false);
       setLoading(false);
     }
   };
@@ -254,11 +270,19 @@ export default function Predictor() {
                     disabled={loading || !percentage || !college || !branch || !category}
                   >
                     {loading
-                      ? <><Loader2 className="h-4 w-4 animate-spin" /> Analysing…</>
+                      ? warmingUp
+                        ? <><Loader2 className="h-4 w-4 animate-spin" /> Warming up ML server…</>
+                        : <><Loader2 className="h-4 w-4 animate-spin" /> Analysing…</>
                       : <><Sparkles className="h-4 w-4" /> Predict Admission</>
                     }
                   </Button>
 
+                  {warmingUp && (
+                    <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-1.5">
+                      <Loader2 className="h-3.5 w-3.5 shrink-0 mt-0.5 animate-spin" />
+                      ML server is waking up from sleep. This may take up to 60 seconds on first use. Please wait…
+                    </p>
+                  )}
                   <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
                     <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                     Results are indicative estimates based on previous CAP data. Final admission depends on DTE CAP rounds.
