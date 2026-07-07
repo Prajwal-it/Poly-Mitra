@@ -1,0 +1,29 @@
+{
+  "generatedAt": "2026-06-28T09:07:30.899Z",
+  "totalRecords": 94053,
+  "totalDropped": 672,
+  "years": [
+    2023,
+    2024
+  ],
+  "rounds": [
+    1,
+    2,
+    3
+  ],
+  "uniqueColleges": 407,
+  "uniqueBranches": 1886,
+  "uniqueCategories": 143,
+  "features": [
+    "year (numeric)",
+    "round (numeric: 1-3)",
+    "collegeCode_enc (label-encoded int)",
+    "branchCode_enc (label-encoded int)",
+    "category_enc (label-encoded int)"
+  ],
+  "targets": [
+    "rank (numeric -- cutoff merit rank)",
+    "percentage (numeric -- cutoff percentage)"
+  ],
+  "note": "See ml_encoding_maps.json to decode collegeCode_enc, branchCode_enc, category_enc back to string values."
+}
