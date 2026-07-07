@@ -1,4 +1,5 @@
-const BASE = "http://localhost:5000";
+const BASE = import.meta.env.VITE_API_BASE_URL ?? "https://poly-mitra.onrender.com";
+
 
 // ── Colleges (derived from cutoff records) ─────────────────────────────────────
 
