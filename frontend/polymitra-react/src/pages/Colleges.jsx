@@ -183,7 +183,7 @@ export default function Colleges() {
   return (
     <SiteLayout>
       {/* ── Header + filters ── */}
-      <div className="border-b border-border bg-surface">
+      <div className="border-b border-border bg-hero-gradient">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
 
           {/* Title row */}
@@ -334,7 +334,7 @@ export default function Colleges() {
       </div>
 
       {/* ── College list ── */}
-      <section className="py-8">
+      <section className="py-8 bg-slate-50/50">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           {listLoading ? (
             <div className="flex justify-center py-24">
