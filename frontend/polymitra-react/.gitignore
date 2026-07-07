@@ -3,3 +3,11 @@ dist
 .vite
 .DS_Store
 *.log
+
+# Environment variables - NEVER commit these
+.env
+.env.local
+.env.development
+.env.production
+.env.staging
+.env*.local
