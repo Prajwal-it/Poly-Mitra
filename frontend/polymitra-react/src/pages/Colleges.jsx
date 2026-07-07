@@ -144,8 +144,12 @@ export default function Colleges() {
       // Taluka matching (checks name since taluka/city info is part of the college name/address)
       if (talukaTerm && !c.collegeName?.toLowerCase().includes(talukaTerm)) return false;
       
-      if (term && !c.collegeName?.toLowerCase().includes(term) && !String(c.collegeCode).includes(term))
-        return false;
+      if (term) {
+        const searchWords = term.split(/[\s,]+/).filter(Boolean);
+        const nameCodeStr = `${c.collegeName} ${c.collegeCode}`.toLowerCase();
+        const matchesAll = searchWords.every((word) => nameCodeStr.includes(word));
+        if (!matchesAll) return false;
+      }
       return true;
     });
   }, [colleges, q, region, district, type, taluka]);

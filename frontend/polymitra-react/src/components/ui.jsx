@@ -207,8 +207,10 @@ export function SearchableSelect({
   const filtered = options.filter((o) => {
     if (!term) return true;
     const text = (getSearchText ? getSearchText(o) : `${getOptionLabel(o)} ${getOptionValue(o)}`).toLowerCase();
-    return text.includes(term);
+    const searchWords = term.split(/[\s,]+/).filter(Boolean);
+    return searchWords.every((word) => text.includes(word));
   });
+
 
   const selected = options.find((o) => getOptionValue(o) === value);
   const displayLabel = selected ? getOptionLabel(selected) : value || placeholder;

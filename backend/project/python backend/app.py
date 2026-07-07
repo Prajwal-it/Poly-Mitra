@@ -13,7 +13,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── Config from environment ────────────────────────────────────────────────────
-PORT       = int(os.environ.get("FLASK_PORT", 3000))
+PORT = int(os.environ.get("PORT", 3000))
 DEBUG      = os.environ.get("FLASK_DEBUG", "0") == "1"
 FLASK_ENV  = os.environ.get("FLASK_ENV", "production")
 
