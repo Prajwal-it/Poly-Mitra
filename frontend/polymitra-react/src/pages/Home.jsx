@@ -228,8 +228,8 @@ function CTA() {
               <p className="mt-3 text-sm sm:text-base text-white/85 max-w-xl">Run your first prediction in under a minute. Free, ad-free, and built for Maharashtra CAP.</p>
             </div>
             <div className="flex gap-3">
-              <Link to="/predictor"><Button size="lg" variant="outline">Try Predictor <ArrowRight className="h-4 w-4" /></Button></Link>
-              <Link to="/colleges"><Button size="lg" variant="outline" className="bg-transparent border-white/40 text-white hover:bg-white/10">Browse Colleges</Button></Link>
+              <Link to="/predictor"><Button size="lg" variant="secondary">Try Predictor <ArrowRight className="h-4 w-4" /></Button></Link>
+              <Link to="/colleges"><Button size="lg" variant="outline" className="!bg-transparent !border-white/40 !text-white hover:!bg-white/10">Browse Colleges</Button></Link>
             </div>
           </div>
         </div>
