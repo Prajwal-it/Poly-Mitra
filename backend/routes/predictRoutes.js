@@ -136,7 +136,7 @@ router.post('/', async (req, res) => {
 
     const mlResponse = await axios.post(`${ML_URL}/predict`, payload, {
       headers: { 'Content-Type': 'application/json' },
-      timeout: 15000, // 15 s
+      timeout: 60000, // 60 s (helps with Render free-tier cold starts)
     });
 
     return res.status(200).json(mlResponse.data);
