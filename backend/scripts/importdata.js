@@ -4,6 +4,7 @@ try {
 } catch (e) {
   console.warn('Failed to set custom DNS servers:', e.message);
 }
+require('dotenv').config({ path: '../.env' });
 const mongoose = require("mongoose");
 const path = require("path");
 const fs = require("fs");
@@ -39,9 +40,9 @@ const round2025_4 = loadJSON('cutoffs2025_round4.json');
 
 async function importData() {
 
-  await mongoose.connect(
-    "mongodb://localhost:27017/PolyMitra"
-  );
+  const uri = process.env.MONGODB_URI || "mongodb://localhost:27017/PolyMitra";
+  console.log("Connecting to Database...");
+  await mongoose.connect(uri);
 
   await Cutoff.deleteMany({});
 
