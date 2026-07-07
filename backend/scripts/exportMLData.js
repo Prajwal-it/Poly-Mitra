@@ -13,6 +13,12 @@
 
 require('dotenv').config({ path: '../.env' });
 
+const dns = require('dns');
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+} catch (e) {
+  console.warn('Failed to set custom DNS servers:', e.message);
+}
 const mongoose = require('mongoose');
 const fs       = require('fs');
 const path     = require('path');
