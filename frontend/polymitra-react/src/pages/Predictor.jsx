@@ -44,8 +44,8 @@ const ROUNDS = [
 ];
 
 export default function Predictor() {
-  const [percentage, setPercentage] = useState("85");
-  const [category, setCategory] = useState("OPEN");
+  const [percentage, setPercentage] = useState("");
+  const [category, setCategory] = useState("");
   const [college, setCollege] = useState("");
   const [branch, setBranch] = useState("");
   const [round, setRound] = useState("1");
@@ -67,16 +67,6 @@ export default function Predictor() {
       try {
         const cols = await fetchCollegeList();
         setColleges(cols);
-
-        if (cols.length > 0) {
-          const firstCol = cols[0];
-          setCollege(firstCol.collegeName);
-          // Load branches for this first college
-          const cutoffData = await fetchCutoffsByCollege(firstCol.collegeCode);
-          const unique = [...new Set(cutoffData.map((r) => r.branchName))].sort();
-          setBranches(unique);
-          if (unique.length > 0) setBranch(unique[0]);
-        }
       } catch (e) {
         console.error("Failed to load predictor meta:", e);
       } finally {
@@ -91,21 +81,18 @@ export default function Predictor() {
   const handleCollegeChange = async (colName) => {
     setCollege(colName);
     const selected = colleges.find((c) => c.collegeName === colName);
-    if (!selected) return;
+    if (!selected) {
+      setBranches([]);
+      setBranch("");
+      return;
+    }
 
     setBranchesLoading(true);
     try {
       const data = await fetchCutoffsByCollege(selected.collegeCode);
       const unique = [...new Set(data.map((r) => r.branchName))].sort();
       setBranches(unique);
-      if (unique.length > 0) {
-        // If current selected branch is not in the new list, set first
-        if (!unique.includes(branch)) {
-          setBranch(unique[0]);
-        }
-      } else {
-        setBranch("");
-      }
+      setBranch(""); // Keep it empty for manual selection
     } catch (e) {
       console.error("Failed to load branches for college:", e);
     } finally {
@@ -239,7 +226,7 @@ export default function Predictor() {
                     <Field label="Category">
                       <Select value={category} onChange={setCategory}>
                         <SelectTrigger>
-                          {PREDICTOR_CATEGORIES.find((c) => c.value === category)?.label || category || "Select"}
+                          {PREDICTOR_CATEGORIES.find((c) => c.value === category)?.label || category || "Select category"}
                         </SelectTrigger>
                         <SelectContent>
                           {PREDICTOR_CATEGORIES.map((c) => (
