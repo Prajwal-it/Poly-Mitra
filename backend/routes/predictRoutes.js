@@ -170,4 +170,32 @@ router.post('/', async (req, res) => {
   }
 });
 
+// ── Warmup route ─────────────────────────────────────────────────────────────
+// Called silently by the frontend when the Predictor page loads.
+// This pings the Python ML service so it wakes from Render free-tier sleep
+// before the student even clicks "Predict Admission".
+
+router.get('/warmup', async (req, res) => {
+  try {
+    await axios.get(`${ML_URL}/health`, { timeout: 60000 });
+    return res.status(200).json({ success: true, message: 'ML service is warm.' });
+  } catch (err) {
+    // Even if it fails, return 200 to the client — it was best-effort
+    return res.status(200).json({ success: false, message: 'ML service is still waking up.' });
+  }
+});
+
+// ── Self-ping to keep ML service warm ────────────────────────────────────────
+// Pings the Python ML /health every 14 minutes so it doesn't go to sleep
+// during active usage (Render free tier sleeps after 15 minutes of inactivity).
+
+setInterval(async () => {
+  try {
+    await axios.get(`${ML_URL}/health`, { timeout: 10000 });
+    console.log('[keep-warm] ML service pinged successfully.');
+  } catch (err) {
+    console.warn('[keep-warm] ML service ping failed (may be sleeping):', err.message);
+  }
+}, 14 * 60 * 1000); // every 14 minutes
+
 module.exports = router;

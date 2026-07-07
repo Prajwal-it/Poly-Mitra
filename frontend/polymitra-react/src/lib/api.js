@@ -86,3 +86,16 @@ export async function postPredict(body) {
   if (!res.ok) throw new Error(json.message || "Prediction failed");
   return json;
 }
+
+// ── Warmup ─────────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/predict/warmup
+ * Silently pings the Python ML service so it wakes from Render free-tier sleep.
+ * Call this on Predictor page mount — no await needed, fire and forget.
+ */
+export function warmupML() {
+  fetch(`${BASE}/api/predict/warmup`).catch(() => {
+    // Silently ignore — this is best-effort
+  });
+}

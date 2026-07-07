@@ -8,7 +8,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger,
   Tabs, TabsContent, TabsList, TabsTrigger,
 } from "../components/ui";
-import { fetchCollegeList, postPredict, fetchCutoffsByCollege } from "../lib/api";
+import { fetchCollegeList, postPredict, fetchCutoffsByCollege, warmupML } from "../lib/api";
 
 const PREDICTOR_CATEGORIES = [
   { value: "OPEN", label: "OPEN (General)" },
@@ -61,8 +61,12 @@ export default function Predictor() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
-  // Load dropdowns from backend
+  // Load dropdowns from backend + silently warm up the ML service
   useEffect(() => {
+    // Fire-and-forget warmup ping so Python ML wakes from Render sleep
+    // before the student fills the form and clicks Predict
+    warmupML();
+
     async function loadMeta() {
       setMetaLoading(true);
       try {
