@@ -1,0 +1,35 @@
+# fly.toml — PolyMitra Node.js API
+# Deploy with: fly deploy (from the backend/ directory)
+
+app = "polymitra-api"
+primary_region = "bom"   # Mumbai
+
+[build]
+  # Fly auto-detects Node.js from package.json
+
+[env]
+  PORT     = "8080"
+  NODE_ENV = "production"
+  # Set these as secrets, NOT here:
+  # fly secrets set MONGODB_URI="mongodb+srv://..."
+  # fly secrets set PYTHON_ML_URL="https://polymitra-ml.fly.dev"
+
+[http_service]
+  internal_port       = 8080
+  force_https         = true
+  auto_stop_machines  = false   # Never sleep
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  memory   = "512mb"
+  cpu_kind = "shared"
+  cpus     = 1
+
+[[services.http_checks]]
+  grace_period = "10s"
+  interval     = "15s"
+  method       = "GET"
+  path         = "/health"
+  port         = 8080
+  timeout      = "5s"

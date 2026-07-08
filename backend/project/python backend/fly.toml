@@ -1,0 +1,36 @@
+# fly.toml — PolyMitra Flask ML Service
+# Deploy with: fly deploy (from this directory)
+# First time: fly launch --no-deploy, then fly deploy
+
+app = "polymitra-ml"
+primary_region = "bom"   # Mumbai — closest to Maharashtra students
+
+[build]
+  # Fly.io auto-detects Python from requirements.txt; no Dockerfile needed.
+  # If auto-detect fails, uncomment below and use Dockerfile.ml
+  # dockerfile = "Dockerfile.ml"
+
+[env]
+  PORT       = "8080"
+  FLASK_ENV  = "production"
+  FLASK_DEBUG = "0"
+
+[http_service]
+  internal_port       = 8080
+  force_https         = true
+  auto_stop_machines  = false   # CRITICAL — prevents sleep / cold starts
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  memory   = "1gb"    # CatBoost needs ~600MB; 1GB gives safe headroom
+  cpu_kind = "shared"
+  cpus     = 1
+
+[[services.http_checks]]
+  grace_period  = "30s"   # Allow model to load on first boot
+  interval      = "15s"
+  method        = "GET"
+  path          = "/health"
+  port          = 8080
+  timeout       = "10s"

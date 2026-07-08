@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertCircle, ArrowRight, CheckCircle2, Loader2, Sparkles, Target, Wifi, WifiOff } from "lucide-react";
 import SiteLayout, { SectionHeading } from "../components/SiteLayout";
@@ -8,7 +8,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger,
   Tabs, TabsContent, TabsList, TabsTrigger,
 } from "../components/ui";
-import { fetchCollegeList, postPredict, fetchCutoffsByCollege, warmupML, fetchMLStatus } from "../lib/api";
+import { fetchCollegeList, postPredict, fetchCutoffsByCollege } from "../lib/api";
 
 const PREDICTOR_CATEGORIES = [
   { value: "OPEN",  label: "OPEN (General)" },
@@ -43,14 +43,7 @@ const ROUNDS = [
   { v: "4", l: "Round 4" },
 ];
 
-// ── Warmup states ──────────────────────────────────────────────────────────────
-// "checking"  → just mounted, first ping in flight
-// "warming"   → server is reachable but model not ready yet
-// "ready"     → model is ready
-// "error"     → could not reach server at all after retries
-
-const WARMUP_CHECK_INTERVAL_MS = 8000; // poll status every 8 s while warming up
-const WARMUP_READY_HIDE_DELAY_MS = 3000; // hide "Ready!" banner after 3 s
+// No warmup needed — prediction runs in-process (no external ML service).
 
 export default function Predictor() {
   const [percentage, setPercentage] = useState("");
@@ -70,54 +63,11 @@ export default function Predictor() {
   const [error,      setError]      = useState(null);
   const [isFallback, setIsFallback] = useState(false);
 
-  // ML service warmup tracking
-  const [warmupState, setWarmupState] = useState("checking"); // "checking"|"warming"|"ready"|"error"
-  const [warmupMsg,   setWarmupMsg]   = useState("Connecting to prediction server…");
-  const warmupTimerRef   = useRef(null);
-  const hideReadyTimerRef = useRef(null);
+  // Predictor runs in-process — always instantly ready, no warmup needed.
+  const warmupState = null;
 
-  // ── Warmup polling logic ───────────────────────────────────────────────────
-  const checkWarmup = useCallback(async () => {
-    try {
-      // Use /warmup (which also pings Flask) for the first call,
-      // then /status (cheap, no outbound request) for subsequent polls.
-      const data = await warmupML();
-
-      if (data.modelReady) {
-        setWarmupState("ready");
-        setWarmupMsg("Prediction server is ready!");
-        // Auto-hide the "ready" banner after a short delay
-        hideReadyTimerRef.current = setTimeout(
-          () => setWarmupState(null),
-          WARMUP_READY_HIDE_DELAY_MS
-        );
-        // Stop polling
-        if (warmupTimerRef.current) {
-          clearInterval(warmupTimerRef.current);
-          warmupTimerRef.current = null;
-        }
-      } else if (data.success === false && !data.modelReady) {
-        // Server reachable but model still loading
-        setWarmupState("warming");
-        setWarmupMsg("ML server is waking up — this takes up to 60 seconds on first use…");
-      } else {
-        // Server not reachable yet
-        setWarmupState("warming");
-        setWarmupMsg("Connecting to prediction server…");
-      }
-    } catch {
-      setWarmupState("error");
-      setWarmupMsg("Could not reach the prediction server. Predictions may be slow.");
-    }
-  }, []);
-
-  // Load dropdowns + start warmup polling on mount
+  // Load dropdowns on mount
   useEffect(() => {
-    // Start warmup immediately
-    checkWarmup();
-    // Poll every 8 s while still warming
-    warmupTimerRef.current = setInterval(checkWarmup, WARMUP_CHECK_INTERVAL_MS);
-
     async function loadMeta() {
       setMetaLoading(true);
       try {
@@ -130,22 +80,7 @@ export default function Predictor() {
       }
     }
     loadMeta();
-
-    return () => {
-      if (warmupTimerRef.current)    clearInterval(warmupTimerRef.current);
-      if (hideReadyTimerRef.current) clearTimeout(hideReadyTimerRef.current);
-    };
-  }, [checkWarmup]);
-
-  // Stop polling once ready or null (banner hidden)
-  useEffect(() => {
-    if (warmupState === "ready" || warmupState === null) {
-      if (warmupTimerRef.current) {
-        clearInterval(warmupTimerRef.current);
-        warmupTimerRef.current = null;
-      }
-    }
-  }, [warmupState]);
+  }, []);
 
   const quotaHint = SEAT_QUOTAS.find((q) => q.value === quota)?.hint ?? "";
 
@@ -188,7 +123,6 @@ export default function Predictor() {
     };
 
     try {
-      // postPredict already has built-in retry (2 retries, 5s + 10s back-off)
       const res = await postPredict(payload);
       setResult(res.data);
       setIsFallback(res._fallback === true);
@@ -196,15 +130,10 @@ export default function Predictor() {
       const msg    = e.message || "";
       const status = e.status;
 
-      if (status === 504 || msg.toLowerCase().includes("timeout")) {
+      if (status === 404) {
         setError(
-          "The ML prediction server is taking too long to respond. " +
-          "This usually means it was sleeping and needs 60–90 seconds to wake up. " +
-          "Please wait a moment and try again."
-        );
-      } else if (status === 503 || msg.toLowerCase().includes("waking")) {
-        setError(
-          "The ML prediction server is still warming up. Please wait 30–60 seconds and try again."
+          "No historical data found for this college/branch/category combination. " +
+          "Try checking the college name spelling or selecting a different category."
         );
       } else if (msg === "Failed to fetch" || msg.toLowerCase().includes("network")) {
         setError(
@@ -373,10 +302,7 @@ export default function Predictor() {
 
                   <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
                     <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                    Results are indicative estimates based on previous CAP data. Final admission depends on DTE CAP rounds.
-                    {warmupState === "warming" && (
-                      <> · <span className="text-amber-600 font-medium">ML server warming up — first prediction may take longer.</span></>
-                    )}
+                    Results are indicative estimates based on CAP 2023–2025 trend data. Final admission depends on DTE CAP rounds.
                   </p>
                 </div>
               )}
@@ -541,15 +467,15 @@ function ResultCard({ result, college, branch, isFallback }) {
         <Progress value={probability} className="h-2" />
       </div>
 
-      {isFallback && (
+      {result?.confidence === "ESTIMATED" && (
         <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-1.5">
           <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-          Prediction server was temporarily unavailable — this result is based on <strong>2025 historical cutoff data</strong> and is still a reliable estimate.
+          Estimated using cross-round adjustment — exact historical data for this round wasn't available. Result is still a reliable guide.
         </p>
       )}
       <p className="text-[11px] text-muted-foreground flex items-start gap-1.5 border-t border-border pt-4">
         <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-        Prediction is based on the ML model trained on CAP 2023–2025 data. Actual cutoffs may vary.
+        Prediction uses weighted trend analysis on CAP 2023–2025 data ({result?.data_years ?? 1}-year{result?.data_years > 1 ? 's' : ''} of data, confidence: {result?.confidence ?? '—'}). Actual cutoffs may vary.
       </p>
     </motion.div>
   );
