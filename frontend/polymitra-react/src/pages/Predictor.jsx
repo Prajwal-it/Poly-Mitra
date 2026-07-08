@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
-import { AlertCircle, ArrowRight, Loader2, Sparkles, Target } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { AlertCircle, ArrowRight, CheckCircle2, Loader2, Sparkles, Target, Wifi, WifiOff } from "lucide-react";
 import SiteLayout, { SectionHeading } from "../components/SiteLayout";
 import {
   Button, Input, Label, Progress,
@@ -8,24 +8,24 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger,
   Tabs, TabsContent, TabsList, TabsTrigger,
 } from "../components/ui";
-import { fetchCollegeList, postPredict, fetchCutoffsByCollege, warmupML } from "../lib/api";
+import { fetchCollegeList, postPredict, fetchCutoffsByCollege, warmupML, fetchMLStatus } from "../lib/api";
 
 const PREDICTOR_CATEGORIES = [
-  { value: "OPEN", label: "OPEN (General)" },
-  { value: "OBC", label: "OBC" },
-  { value: "SC", label: "SC" },
-  { value: "ST", label: "ST" },
-  { value: "EWS", label: "EWS" },
-  { value: "SEBC", label: "SEBC" },
-  { value: "NTB", label: "NT-B" },
-  { value: "NTC", label: "NT-C" },
-  { value: "NTD", label: "NT-D" },
-  { value: "TFWS", label: "TFWS" },
-  { value: "PWD", label: "PWD" },
+  { value: "OPEN",  label: "OPEN (General)" },
+  { value: "OBC",   label: "OBC" },
+  { value: "SC",    label: "SC" },
+  { value: "ST",    label: "ST" },
+  { value: "EWS",   label: "EWS" },
+  { value: "SEBC",  label: "SEBC" },
+  { value: "NTB",   label: "NT-B" },
+  { value: "NTC",   label: "NT-C" },
+  { value: "NTD",   label: "NT-D" },
+  { value: "TFWS",  label: "TFWS" },
+  { value: "PWD",   label: "PWD" },
 ];
 
 const SEAT_QUOTAS = [
-  { value: "H", label: "Home District (H)", hint: "Same district as college — e.g. NGOPENH" },
+  { value: "H", label: "Home District (H)",  hint: "Same district as college — e.g. NGOPENH" },
   { value: "O", label: "Other District (O)", hint: "Different district — e.g. NGOPENO" },
 ];
 
@@ -43,29 +43,79 @@ const ROUNDS = [
   { v: "4", l: "Round 4" },
 ];
 
+// ── Warmup states ──────────────────────────────────────────────────────────────
+// "checking"  → just mounted, first ping in flight
+// "warming"   → server is reachable but model not ready yet
+// "ready"     → model is ready
+// "error"     → could not reach server at all after retries
+
+const WARMUP_CHECK_INTERVAL_MS = 8000; // poll status every 8 s while warming up
+const WARMUP_READY_HIDE_DELAY_MS = 3000; // hide "Ready!" banner after 3 s
+
 export default function Predictor() {
   const [percentage, setPercentage] = useState("");
-  const [category, setCategory] = useState("");
-  const [college, setCollege] = useState("");
-  const [branch, setBranch] = useState("");
-  const [round, setRound] = useState("1");
-  const [quota, setQuota] = useState("H");
+  const [category,   setCategory]   = useState("");
+  const [college,    setCollege]     = useState("");
+  const [branch,     setBranch]      = useState("");
+  const [round,      setRound]       = useState("1");
+  const [quota,      setQuota]       = useState("H");
 
-  const [colleges, setColleges] = useState([]);
-  const [branches, setBranches] = useState([]);
-  const [metaLoading, setMetaLoading] = useState(true);
-  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [colleges,       setColleges]       = useState([]);
+  const [branches,       setBranches]       = useState([]);
+  const [metaLoading,    setMetaLoading]    = useState(true);
+  const [branchesLoading,setBranchesLoading]= useState(false);
 
-  const [loading, setLoading] = useState(false);
-  const [warmingUp, setWarmingUp] = useState(false);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState(null);
+  const [loading,  setLoading]  = useState(false);
+  const [result,   setResult]   = useState(null);
+  const [error,    setError]    = useState(null);
 
-  // Load dropdowns from backend + silently warm up the ML service
+  // ML service warmup tracking
+  const [warmupState, setWarmupState] = useState("checking"); // "checking"|"warming"|"ready"|"error"
+  const [warmupMsg,   setWarmupMsg]   = useState("Connecting to prediction server…");
+  const warmupTimerRef   = useRef(null);
+  const hideReadyTimerRef = useRef(null);
+
+  // ── Warmup polling logic ───────────────────────────────────────────────────
+  const checkWarmup = useCallback(async () => {
+    try {
+      // Use /warmup (which also pings Flask) for the first call,
+      // then /status (cheap, no outbound request) for subsequent polls.
+      const data = await warmupML();
+
+      if (data.modelReady) {
+        setWarmupState("ready");
+        setWarmupMsg("Prediction server is ready!");
+        // Auto-hide the "ready" banner after a short delay
+        hideReadyTimerRef.current = setTimeout(
+          () => setWarmupState(null),
+          WARMUP_READY_HIDE_DELAY_MS
+        );
+        // Stop polling
+        if (warmupTimerRef.current) {
+          clearInterval(warmupTimerRef.current);
+          warmupTimerRef.current = null;
+        }
+      } else if (data.success === false && !data.modelReady) {
+        // Server reachable but model still loading
+        setWarmupState("warming");
+        setWarmupMsg("ML server is waking up — this takes up to 60 seconds on first use…");
+      } else {
+        // Server not reachable yet
+        setWarmupState("warming");
+        setWarmupMsg("Connecting to prediction server…");
+      }
+    } catch {
+      setWarmupState("error");
+      setWarmupMsg("Could not reach the prediction server. Predictions may be slow.");
+    }
+  }, []);
+
+  // Load dropdowns + start warmup polling on mount
   useEffect(() => {
-    // Fire-and-forget warmup ping so Python ML wakes from Render sleep
-    // before the student fills the form and clicks Predict
-    warmupML();
+    // Start warmup immediately
+    checkWarmup();
+    // Poll every 8 s while still warming
+    warmupTimerRef.current = setInterval(checkWarmup, WARMUP_CHECK_INTERVAL_MS);
 
     async function loadMeta() {
       setMetaLoading(true);
@@ -79,7 +129,22 @@ export default function Predictor() {
       }
     }
     loadMeta();
-  }, []);
+
+    return () => {
+      if (warmupTimerRef.current)    clearInterval(warmupTimerRef.current);
+      if (hideReadyTimerRef.current) clearTimeout(hideReadyTimerRef.current);
+    };
+  }, [checkWarmup]);
+
+  // Stop polling once ready or null (banner hidden)
+  useEffect(() => {
+    if (warmupState === "ready" || warmupState === null) {
+      if (warmupTimerRef.current) {
+        clearInterval(warmupTimerRef.current);
+        warmupTimerRef.current = null;
+      }
+    }
+  }, [warmupState]);
 
   const quotaHint = SEAT_QUOTAS.find((q) => q.value === quota)?.hint ?? "";
 
@@ -94,10 +159,10 @@ export default function Predictor() {
 
     setBranchesLoading(true);
     try {
-      const data = await fetchCutoffsByCollege(selected.collegeCode);
+      const data   = await fetchCutoffsByCollege(selected.collegeCode);
       const unique = [...new Set(data.map((r) => r.branchName))].sort();
       setBranches(unique);
-      setBranch(""); // Keep it empty for manual selection
+      setBranch("");
     } catch (e) {
       console.error("Failed to load branches for college:", e);
     } finally {
@@ -107,7 +172,6 @@ export default function Predictor() {
 
   const onPredict = async () => {
     setLoading(true);
-    setWarmingUp(false);
     setResult(null);
     setError(null);
 
@@ -117,27 +181,37 @@ export default function Predictor() {
       branch,
       category,
       round: Number(round),
-      year: 2026,
+      year:  2026,
       quota,
     };
 
-    // Warm-up notice after 5 seconds of waiting
-    const warmTimer = setTimeout(() => setWarmingUp(true), 5000);
-
     try {
+      // postPredict already has built-in retry (2 retries, 5s + 10s back-off)
       const res = await postPredict(payload);
       setResult(res.data);
     } catch (e) {
-      const msg = e.message || "";
-      // 502/504/network errors → cold start message
-      if (msg.includes("502") || msg.includes("504") || msg.includes("Failed to fetch") || msg.includes("network")) {
-        setError("The ML prediction server is warming up (it sleeps after inactivity). Please wait 30–60 seconds and try again.");
+      const msg    = e.message || "";
+      const status = e.status;
+
+      if (status === 504 || msg.toLowerCase().includes("timeout")) {
+        setError(
+          "The ML prediction server is taking too long to respond. " +
+          "This usually means it was sleeping and needs 60–90 seconds to wake up. " +
+          "Please wait a moment and try again."
+        );
+      } else if (status === 503 || msg.toLowerCase().includes("waking")) {
+        setError(
+          "The ML prediction server is still warming up. Please wait 30–60 seconds and try again."
+        );
+      } else if (msg === "Failed to fetch" || msg.toLowerCase().includes("network")) {
+        setError(
+          "Network error — could not reach the server. " +
+          "Please check your internet connection and try again."
+        );
       } else {
         setError(msg || "Prediction failed. Please check your inputs and try again.");
       }
     } finally {
-      clearTimeout(warmTimer);
-      setWarmingUp(false);
       setLoading(false);
     }
   };
@@ -155,6 +229,21 @@ export default function Predictor() {
           />
         </div>
       </section>
+
+      {/* ── Warmup status banner ── */}
+      <AnimatePresence>
+        {warmupState && warmupState !== null && (
+          <motion.div
+            key="warmup-banner"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <WarmupBanner state={warmupState} message={warmupMsg} />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <section className="py-6 sm:py-10 lg:py-14">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 grid gap-6 lg:grid-cols-5">
@@ -274,22 +363,17 @@ export default function Predictor() {
                     disabled={loading || !percentage || !college || !branch || !category}
                   >
                     {loading
-                      ? warmingUp
-                        ? <><Loader2 className="h-4 w-4 animate-spin" /> Warming up ML server…</>
-                        : <><Loader2 className="h-4 w-4 animate-spin" /> Analysing…</>
+                      ? <><Loader2 className="h-4 w-4 animate-spin" /> Analysing…</>
                       : <><Sparkles className="h-4 w-4" /> Predict Admission</>
                     }
                   </Button>
 
-                  {warmingUp && (
-                    <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-1.5">
-                      <Loader2 className="h-3.5 w-3.5 shrink-0 mt-0.5 animate-spin" />
-                      ML server is waking up from sleep. This may take up to 60 seconds on first use. Please wait…
-                    </p>
-                  )}
                   <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
                     <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                     Results are indicative estimates based on previous CAP data. Final admission depends on DTE CAP rounds.
+                    {warmupState === "warming" && (
+                      <> · <span className="text-amber-600 font-medium">ML server warming up — first prediction may take longer.</span></>
+                    )}
                   </p>
                 </div>
               )}
@@ -299,15 +383,48 @@ export default function Predictor() {
           {/* ── Results ── */}
           <div className="lg:col-span-3">
             {loading && <LoadingResults />}
-            {!loading && error && <ErrorState message={error} />}
+            {!loading && error  && <ErrorState message={error} onRetry={onPredict} />}
             {!loading && !error && !result && <EmptyPrediction />}
-            {!loading && !error && result && <ResultCard result={result} college={college} branch={branch} />}
+            {!loading && !error && result  && <ResultCard result={result} college={college} branch={branch} />}
           </div>
         </div>
       </section>
     </SiteLayout>
   );
 }
+
+// ── Warmup banner component ────────────────────────────────────────────────────
+
+function WarmupBanner({ state, message }) {
+  const styles = {
+    checking: "bg-blue-50   border-blue-200   text-blue-700",
+    warming:  "bg-amber-50  border-amber-200  text-amber-700",
+    ready:    "bg-green-50  border-green-200  text-green-700",
+    error:    "bg-orange-50 border-orange-200 text-orange-700",
+  };
+
+  const Icon =
+    state === "ready"   ? CheckCircle2 :
+    state === "error"   ? WifiOff      :
+    state === "warming" ? Wifi         :
+    Loader2;
+
+  return (
+    <div className={`border-b px-4 py-2 ${styles[state] || styles.checking}`}>
+      <div className="mx-auto max-w-7xl flex items-center gap-2 text-xs font-medium">
+        <Icon
+          className={`h-3.5 w-3.5 shrink-0 ${(state === "checking" || state === "warming") ? "animate-spin" : ""}`}
+        />
+        <span>{message}</span>
+        {state === "warming" && (
+          <span className="ml-auto opacity-70">Retrying automatically…</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Sub-components ─────────────────────────────────────────────────────────────
 
 function Field({ label, children }) {
   return (
@@ -348,12 +465,20 @@ function EmptyPrediction() {
   );
 }
 
-function ErrorState({ message }) {
+function ErrorState({ message, onRetry }) {
   return (
-    <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-10 text-center">
+    <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-10 text-center space-y-4">
       <AlertCircle className="h-8 w-8 text-destructive mx-auto" />
-      <h3 className="mt-4 font-display text-lg font-bold text-destructive">Prediction Failed</h3>
-      <p className="mt-2 text-sm text-muted-foreground">{message}</p>
+      <h3 className="font-display text-lg font-bold text-destructive">Prediction Failed</h3>
+      <p className="text-sm text-muted-foreground max-w-sm mx-auto">{message}</p>
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:underline mt-2"
+        >
+          <Loader2 className="h-3.5 w-3.5" /> Try again
+        </button>
+      )}
     </div>
   );
 }
@@ -398,9 +523,10 @@ function ResultCard({ result, college, branch }) {
 
       {/* Stats grid */}
       <div className="grid grid-cols-3 gap-2 sm:gap-4">
-        <StatBox label="Your Score" value={`${student_percentage}%`} tone="brand" />
-        <StatBox label="Cutoff" value={`${predicted_cutoff?.toFixed(2)}%`} tone="neutral" />
-        <StatBox label="Probability" value={`${probability?.toFixed(1)}%`} tone={probability >= 60 ? "success" : probability >= 35 ? "warning" : "destructive"} />
+        <StatBox label="Your Score"   value={`${student_percentage}%`}           tone="brand" />
+        <StatBox label="Cutoff"       value={`${predicted_cutoff?.toFixed(2)}%`} tone="neutral" />
+        <StatBox label="Probability"  value={`${probability?.toFixed(1)}%`}
+          tone={probability >= 60 ? "success" : probability >= 35 ? "warning" : "destructive"} />
       </div>
 
       {/* Probability bar */}
@@ -422,11 +548,11 @@ function ResultCard({ result, college, branch }) {
 
 function StatBox({ label, value, tone }) {
   const colors = {
-    brand: "text-brand bg-brand/10",
-    success: "text-success bg-success/10",
-    warning: "text-warning-foreground bg-warning/20",
+    brand:       "text-brand bg-brand/10",
+    success:     "text-success bg-success/10",
+    warning:     "text-warning-foreground bg-warning/20",
     destructive: "text-destructive bg-destructive/10",
-    neutral: "text-foreground bg-surface",
+    neutral:     "text-foreground bg-surface",
   };
   return (
     <div className={`rounded-xl p-3 sm:p-4 text-center ${colors[tone] || colors.neutral}`}>

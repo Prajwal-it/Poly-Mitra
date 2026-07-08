@@ -1,4 +1,5 @@
 import os
+import time
 import logging
 import joblib
 import numpy as np
@@ -11,13 +12,56 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ── Load model once at startup ─────────────────────────────────────────────────
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ── Model state ────────────────────────────────────────────────────────────────
+_BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 _MODEL_PATH = os.path.join(_BASE_DIR, "models", "cutoff_model.pkl")
 
-logger.info(f"Loading model from {_MODEL_PATH}")
-model = joblib.load(_MODEL_PATH)
-logger.info("Model loaded successfully.")
+model        = None
+_model_error = None   # stores the last load exception message
+
+
+def _load_model(retries: int = 3, delay: float = 2.0):
+    """
+    Attempt to load the CatBoost model up to `retries` times.
+    Sets the module-level `model` and `_model_error` accordingly.
+    Returns True if successful, False otherwise.
+    """
+    global model, _model_error
+    for attempt in range(1, retries + 1):
+        try:
+            logger.info(
+                f"[model-load] Attempt {attempt}/{retries}: loading {_MODEL_PATH}"
+            )
+            model        = joblib.load(_MODEL_PATH)
+            _model_error = None
+            logger.info("[model-load] Model loaded successfully.")
+            return True
+        except Exception as exc:
+            _model_error = str(exc)
+            logger.error(f"[model-load] Attempt {attempt} failed: {exc}")
+            if attempt < retries:
+                time.sleep(delay)
+
+    logger.critical(
+        "[model-load] All attempts failed. "
+        "Predictions will return 503 until the service is restarted."
+    )
+    return False
+
+
+def is_model_loaded() -> bool:
+    """Return True if the model is currently in memory and ready."""
+    return model is not None
+
+
+def get_model_error() -> str | None:
+    """Return the last load error message, or None if model is healthy."""
+    return _model_error
+
+
+# ── Load model at startup (non-fatal) ─────────────────────────────────────────
+_load_model(retries=3, delay=2.0)
+
 
 # ── All 143 valid Maharashtra CAP category codes (from training data) ──────────
 VALID_CAP_CODES = {
@@ -51,55 +95,46 @@ VALID_CAP_CODES = {
 }
 
 # ── Simplified category aliases → CAP base code ───────────────────────────────
-# Users can send simplified codes (OPEN, OBC, SC, ST, EWS, SEBC, NTB, etc.)
-# These are combined with the college_type prefix and home_state suffix.
 SIMPLIFIED_TO_BASE = {
-    # Standard categories
-    "OPEN":   "OPEN",
-    "GEN":    "OPEN",   # alias
-    "GENERAL":"OPEN",   # alias
-    "OBC":    "OBC",
-    "SC":     "SC",
-    "ST":     "ST",
-    "EWS":    "EWS",    # standalone — no prefix/suffix
-    "SEBC":   "SEBC",
-    "NTA":    "NTA",
-    "NTB":    "NTB",
-    "NTC":    "NTC",
-    "NTD":    "NTD",
-    "TFWS":   "TFWS",   # standalone
-    "MI":     "MI",     # standalone
-    "ORPHAN": "ORPHAN", # standalone
-    # PWD
+    "OPEN":    "OPEN",
+    "GEN":     "OPEN",
+    "GENERAL": "OPEN",
+    "OBC":     "OBC",
+    "SC":      "SC",
+    "ST":      "ST",
+    "EWS":     "EWS",
+    "SEBC":    "SEBC",
+    "NTA":     "NTA",
+    "NTB":     "NTB",
+    "NTC":     "NTC",
+    "NTD":     "NTD",
+    "TFWS":    "TFWS",
+    "MI":      "MI",
+    "ORPHAN":  "ORPHAN",
     "PWD":     "PWDOPEN",
     "PWDOPEN": "PWDOPEN",
     "PWDOBC":  "PWDOB",
     "PWDSC":   "PWDS",
-    # DEF
-    "DEF":    "DEFOPEN",
+    "DEF":     "DEFOPEN",
 }
 
-# ── Standalone codes that are NOT built by combining prefix + base + suffix ────
 _STANDALONE_CODES = {"EWS", "TFWS", "MI", "ORPHAN", "EPHST"}
 
-# ── College type prefixes ─────────────────────────────────────────────────────
 COLLEGE_TYPE_PREFIXES = {
-    "NG": "NG",   # Government
-    "NL": "NL",   # Linguistic Minority
-    "TG": "TG",   # Trust - Government
-    "TL": "TL",   # Trust - Linguistic Minority
-    # Aliases
+    "NG":         "NG",
+    "NL":         "NL",
+    "TG":         "TG",
+    "TL":         "TL",
     "GOVT":       "NG",
     "GOVERNMENT": "NG",
     "LM":         "NL",
     "TRUST":      "TG",
 }
 
-# ── Quota/home-state suffixes ──────────────────────────────────────────────────
 QUOTA_SUFFIXES = {
-    "H": "H",  # Home State (default — most common)
-    "O": "O",  # Other State / Outside
-    "S": "S",  # State Level / NRI
+    "H": "H",
+    "O": "O",
+    "S": "S",
 }
 
 
@@ -109,35 +144,14 @@ def normalize_category(
         quota: str = "H") -> str:
     """
     Normalize a user-provided category string to a valid Maharashtra CAP code.
-
-    Parameters
-    ----------
-    category     : str  — simplified or full CAP code
-                          Simplified: "OPEN", "OBC", "SC", "ST", "EWS", "SEBC",
-                                      "NTB", "NTC", "NTD", "TFWS", "PWD" …
-                          Full:       "NGOPENH", "NGOBCH", "NGSCH", etc.
-    college_type : str  — college quota type prefix (default "NG" = Govt)
-                          Accepts: "NG", "NL", "TG", "TL" or aliases
-    quota        : str  — home/other state suffix (default "H" = Home State)
-                          Accepts: "H", "O", "S"
-
-    Returns
-    -------
-    str — a valid CAP category code from VALID_CAP_CODES,
-          OR the cleaned input if it's already a known code,
-          OR a best-effort code with a logged warning.
     """
     cat_upper = category.strip().upper()
 
-    # 1. Already a valid full CAP code → pass through as-is
     if cat_upper in VALID_CAP_CODES:
         return cat_upper
-
-    # 2. Standalone codes that don't need prefix/suffix
     if cat_upper in _STANDALONE_CODES:
         return cat_upper
 
-    # 3. Map simplified alias → base code
     base = SIMPLIFIED_TO_BASE.get(cat_upper)
     if base is None:
         logger.warning(
@@ -145,20 +159,16 @@ def normalize_category(
         )
         return "NGOPENH"
 
-    # 4. Standalone base → no prefix/suffix
     if base in _STANDALONE_CODES:
         return base
 
-    # 5. Resolve prefix and suffix
-    prefix = COLLEGE_TYPE_PREFIXES.get(college_type.strip().upper(), "NG")
-    suffix = QUOTA_SUFFIXES.get(quota.strip().upper(), "H")
-
-    # 6. Build full code and validate
+    prefix    = COLLEGE_TYPE_PREFIXES.get(college_type.strip().upper(), "NG")
+    suffix    = QUOTA_SUFFIXES.get(quota.strip().upper(), "H")
     full_code = f"{prefix}{base}{suffix}"
+
     if full_code in VALID_CAP_CODES:
         return full_code
 
-    # 7. If exact combination not in training data, fall back to NG + base + H
     fallback = f"NG{base}H"
     if fallback in VALID_CAP_CODES:
         logger.warning(
@@ -190,28 +200,16 @@ def predict_admission(
     """
     Predict admission chance for a student.
 
-    Parameters
-    ----------
-    student_percentage : float  — student's percentage score (0–100)
-    college_name       : str    — college name as stored in DB
-    branch_name        : str    — branch name as stored in DB
-    category           : str    — simplified ("OPEN","OBC","SC","ST","EWS","SEBC",
-                                  "NTB","NTC","NTD","TFWS","PWD") OR full CAP code
-    round_no           : int    — CAP round number (1–4)
-    year               : int    — prediction year (default 2026)
-    college_type       : str    — college quota prefix (default "NG" = Govt)
-    quota              : str    — home/other state suffix (default "H" = Home State)
-
-    Returns
-    -------
-    dict with keys:
-        resolved_category   : str   — the actual CAP code used for prediction
-        predicted_cutoff    : float — model-predicted cutoff percentage
-        student_percentage  : float — input student percentage
-        probability         : float — admission probability (0–100)
-        chance              : str   — "Very High" / "High" / "Moderate" / "Low" / "Very Low"
+    Raises
+    ------
+    RuntimeError  — if the model is not loaded (surfaced as 503 from app.py).
     """
-    # Normalize category to a valid CAP code
+    # Guard: fail fast and clearly if model is not ready
+    if not is_model_loaded():
+        raise RuntimeError(
+            f"ML model is not loaded. Last error: {get_model_error()}"
+        )
+
     resolved_category = normalize_category(
         category, college_type=college_type, quota=quota
     )
@@ -228,7 +226,7 @@ def predict_admission(
 
     predicted_cutoff = float(model.predict(X)[0])
 
-    difference = float(student_percentage) - predicted_cutoff
+    difference  = float(student_percentage) - predicted_cutoff
     probability = round(sigmoid(difference / 2) * 100, 2)
 
     if probability >= 90:

@@ -29,7 +29,7 @@ function Hero() {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
             <div className="inline-flex items-center gap-2 rounded-full border border-brand/20 bg-white/70 px-3 py-1 text-xs font-medium text-brand">
               <Sparkles className="h-3.5 w-3.5" />
-              Admission Season 2025 · CAP Rounds Live
+              Admission Season 2026 · CAP Rounds Live
             </div>
             <h1 className="mt-4 font-display text-3xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.08] tracking-tight">
               Maharashtra Polytechnic <span className="text-gradient-brand">Admission Helper</span>

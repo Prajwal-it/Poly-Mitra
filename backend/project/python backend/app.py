@@ -3,7 +3,7 @@ import logging
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-from predictor import predict_admission
+from predictor import predict_admission, is_model_loaded, get_model_error, _load_model
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -13,9 +13,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── Config from environment ────────────────────────────────────────────────────
-PORT = int(os.environ.get("PORT", 3000))
-DEBUG      = os.environ.get("FLASK_DEBUG", "0") == "1"
-FLASK_ENV  = os.environ.get("FLASK_ENV", "production")
+PORT      = int(os.environ.get("PORT", 3000))
+DEBUG     = os.environ.get("FLASK_DEBUG", "0") == "1"
+FLASK_ENV = os.environ.get("FLASK_ENV", "production")
 
 # ── App ────────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -27,14 +27,31 @@ CORS(app)
 @app.route("/")
 def home():
     return jsonify({
-        "success": True,
-        "message": "Polytechnic Cutoff Predictor ML API is running!",
-        "env": FLASK_ENV,
+        "success":     True,
+        "message":     "Polytechnic Cutoff Predictor ML API is running!",
+        "env":         FLASK_ENV,
+        "model_ready": is_model_loaded(),
     })
 
 
 @app.route("/predict", methods=["POST"])
 def predict():
+    # ── Guard: refuse requests if model not ready ──────────────────────────────
+    if not is_model_loaded():
+        # Attempt a fresh load before giving up (handles transient startup failures)
+        logger.warning("/predict called but model not loaded — attempting reload…")
+        _load_model(retries=1, delay=0)
+        if not is_model_loaded():
+            return jsonify({
+                "success": False,
+                "message": (
+                    "ML model is not loaded. "
+                    f"Last error: {get_model_error()}. "
+                    "Please try again in a few seconds or contact support."
+                ),
+                "model_error": get_model_error(),
+            }), 503
+
     data = request.get_json(silent=True)
 
     if not data:
@@ -61,8 +78,10 @@ def predict():
     except (ValueError, TypeError) as e:
         return jsonify({
             "success": False,
-            "message": f"Invalid numeric value: {str(e)}. "
-                       "'percentage' must be a number, 'round' and 'year' must be integers."
+            "message": (
+                f"Invalid numeric value: {str(e)}. "
+                "'percentage' must be a number, 'round' and 'year' must be integers."
+            )
         }), 422
 
     if not (0 <= percentage <= 100):
@@ -99,6 +118,14 @@ def predict():
             "data":    result,
         })
 
+    except RuntimeError as e:
+        # Model not ready (raised by predict_admission guard)
+        logger.error(f"Model not ready during prediction: {e}")
+        return jsonify({
+            "success": False,
+            "message": str(e),
+        }), 503
+
     except Exception as e:
         logger.exception("Prediction failed")
         return jsonify({
@@ -108,20 +135,30 @@ def predict():
 
 
 # ── Health check ───────────────────────────────────────────────────────────────
+# Returns 200 + model_loaded=true when healthy.
+# Returns 503 + model_loaded=false if the model failed to load — so the
+# keep-warm pinger in Node.js can detect real problems vs. just "server is up".
 
 @app.route("/health")
 def health():
+    loaded = is_model_loaded()
+    status_code = 200 if loaded else 503
     return jsonify({
-        "success": True,
-        "status":  "ok",
-        "env":     FLASK_ENV,
-    })
+        "success":     loaded,
+        "status":      "ok" if loaded else "model_not_loaded",
+        "model_loaded": loaded,
+        "model_error": get_model_error(),
+        "env":         FLASK_ENV,
+    }), status_code
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    logger.info(f"Starting Flask ML service on port {PORT} (debug={DEBUG}, env={FLASK_ENV})")
+    logger.info(
+        f"Starting Flask ML service on port {PORT} "
+        f"(debug={DEBUG}, env={FLASK_ENV}, model_ready={is_model_loaded()})"
+    )
     app.run(
         host  = "0.0.0.0",
         port  = PORT,

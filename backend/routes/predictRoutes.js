@@ -5,6 +5,48 @@ const router = express.Router();
 
 const ML_URL = process.env.PYTHON_ML_URL || 'http://localhost:3000';
 
+// ── ML service health state (in-memory) ──────────────────────────────────────
+// Updated by keep-warm pings so /status can answer instantly.
+let _mlStatus = {
+  alive:      false,
+  modelReady: false,
+  lastPingAt: null,
+  lastError:  null,
+};
+
+// ── Axios helper with automatic retry ─────────────────────────────────────────
+/**
+ * Executes an axios request and retries on transient network failures.
+ *
+ * @param {Function} fn          — () => axios(...) call factory
+ * @param {number}   maxRetries  — total extra attempts after first try
+ * @param {number}   delayMs     — ms to wait between retries
+ */
+async function withRetry(fn, maxRetries = 2, delayMs = 4000) {
+  let lastErr;
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const isTransient = (
+        err.code === 'ETIMEDOUT'    ||
+        err.code === 'ECONNABORTED' ||
+        err.code === 'ECONNREFUSED' ||
+        err.code === 'ENOTFOUND'    ||
+        (err.response && err.response.status >= 500)
+      );
+      if (!isTransient || attempt > maxRetries) throw err;
+      console.warn(
+        `[predict-retry] Attempt ${attempt}/${maxRetries + 1} failed `  +
+        `(${err.code || err.message}). Retrying in ${delayMs}ms…`
+      );
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr;
+}
+
 /**
  * POST /api/predict
  *
@@ -122,7 +164,7 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // ── Proxy to Flask ML service ───────────────────────────────────────────
+    // ── Proxy to Flask ML service (with retry) ──────────────────────────────
     const payload = {
       percentage:   pct,
       college:      String(college).trim(),
@@ -134,31 +176,36 @@ router.post('/', async (req, res) => {
       quota:        qUpper,
     };
 
-    const mlResponse = await axios.post(`${ML_URL}/predict`, payload, {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: 60000, // 60 s (helps with Render free-tier cold starts)
-    });
+    const mlResponse = await withRetry(
+      () => axios.post(`${ML_URL}/predict`, payload, {
+        headers: { 'Content-Type': 'application/json' },
+        // 90 s — Render free-tier cold start can take 80–90 s
+        timeout: 90000,
+      }),
+      2,    // up to 2 retries (3 total attempts)
+      4000  // 4 s between retries
+    );
 
     return res.status(200).json(mlResponse.data);
 
   } catch (err) {
-    // Flask returned a structured error (400, 422, 500)
+    // Flask returned a structured error (400, 422, 500, 503)
     if (err.response) {
       return res.status(err.response.status).json(err.response.data);
     }
 
-    // Flask is unreachable
+    // Flask is unreachable (after all retries)
     if (err.code === 'ECONNREFUSED') {
       return res.status(503).json({
         success: false,
-        message: 'ML prediction service is not running. Please start the Python ML service on port 3000.',
+        message: 'ML prediction service is not reachable. It may still be starting up. Please wait 30–60 seconds and try again.',
       });
     }
 
     if (err.code === 'ETIMEDOUT' || err.code === 'ECONNABORTED') {
       return res.status(504).json({
         success: false,
-        message: 'ML prediction service timed out. The model may still be loading.',
+        message: 'ML prediction service timed out even after retries. The server may be under heavy load — please try again in a minute.',
       });
     }
 
@@ -172,30 +219,80 @@ router.post('/', async (req, res) => {
 
 // ── Warmup route ─────────────────────────────────────────────────────────────
 // Called silently by the frontend when the Predictor page loads.
-// This pings the Python ML service so it wakes from Render free-tier sleep
-// before the student even clicks "Predict Admission".
+// Pings the Python ML /health so it wakes from Render free-tier sleep.
 
 router.get('/warmup', async (req, res) => {
   try {
-    await axios.get(`${ML_URL}/health`, { timeout: 60000 });
-    return res.status(200).json({ success: true, message: 'ML service is warm.' });
+    const r = await axios.get(`${ML_URL}/health`, { timeout: 90000 });
+    const modelReady = r.data?.model_loaded !== false; // treat missing field as true
+    _mlStatus = {
+      alive:      true,
+      modelReady,
+      lastPingAt: new Date().toISOString(),
+      lastError:  null,
+    };
+    return res.status(200).json({
+      success:    true,
+      modelReady,
+      message:    modelReady ? 'ML service is warm and ready.' : 'ML service is up but model is still loading.',
+    });
   } catch (err) {
-    // Even if it fails, return 200 to the client — it was best-effort
-    return res.status(200).json({ success: false, message: 'ML service is still waking up.' });
+    _mlStatus = {
+      alive:      false,
+      modelReady: false,
+      lastPingAt: new Date().toISOString(),
+      lastError:  err.message,
+    };
+    // Return 200 even on failure — the frontend will poll again
+    return res.status(200).json({
+      success:    false,
+      modelReady: false,
+      message:    'ML service is still waking up. Please wait…',
+    });
   }
 });
 
-// ── Self-ping to keep ML service warm ────────────────────────────────────────
-// Pings the Python ML /health every 14 minutes so it doesn't go to sleep
-// during active usage (Render free tier sleeps after 15 minutes of inactivity).
+// ── Status route ──────────────────────────────────────────────────────────────
+// Frontend can poll this to show a real-time warmup banner.
 
-setInterval(async () => {
+router.get('/status', (req, res) => {
+  res.status(200).json({
+    success: true,
+    ml:      _mlStatus,
+  });
+});
+
+// ── Keep-warm: immediate startup ping + recurring every 13 minutes ─────────────
+// Render free tier sleeps after 15 minutes of inactivity.
+// We ping every 13 min to stay well within the limit.
+// The immediate ping fires as soon as this module is first imported (Node start).
+
+async function pingML() {
   try {
-    await axios.get(`${ML_URL}/health`, { timeout: 10000 });
-    console.log('[keep-warm] ML service pinged successfully.');
+    const r = await axios.get(`${ML_URL}/health`, { timeout: 15000 });
+    const modelReady = r.data?.model_loaded !== false;
+    _mlStatus = {
+      alive:      true,
+      modelReady,
+      lastPingAt: new Date().toISOString(),
+      lastError:  null,
+    };
+    console.log(`[keep-warm] ML service is alive (model_ready=${modelReady}).`);
   } catch (err) {
+    _mlStatus = {
+      alive:      false,
+      modelReady: false,
+      lastPingAt: new Date().toISOString(),
+      lastError:  err.message,
+    };
     console.warn('[keep-warm] ML service ping failed (may be sleeping):', err.message);
   }
-}, 14 * 60 * 1000); // every 14 minutes
+}
+
+// Fire immediately on startup — don't wait 13 minutes for the first ping
+pingML();
+
+// Then ping every 13 minutes
+setInterval(pingML, 13 * 60 * 1000);
 
 module.exports = router;

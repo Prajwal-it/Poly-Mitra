@@ -1,12 +1,10 @@
 const BASE = import.meta.env.VITE_API_BASE_URL ?? "https://poly-mitra.onrender.com";
 
-
 // ── Colleges (derived from cutoff records) ─────────────────────────────────────
 
 /**
  * GET /api/cutoffs/college-list
  * Returns distinct { collegeCode, collegeName } pairs from the cutoff collection.
- * This replaces the deleted College model.
  * Optional: ?year=
  */
 export async function fetchCollegeList(year) {
@@ -72,30 +70,95 @@ export async function fetchCutoffsByCollege(collegeCode, params = {}) {
 // ── Predict ────────────────────────────────────────────────────────────────────
 
 /**
- * POST /api/predict
+ * POST /api/predict  (with automatic retry + exponential back-off)
+ *
  * Body: { percentage, college, branch, category, round, year?, college_type?, quota? }
  * Returns: { success, data: { predicted_cutoff, student_percentage, probability, chance, resolved_category } }
+ *
+ * Retries up to `maxRetries` times on transient network/server errors.
+ * Does NOT retry on 400/422 validation errors (those are the caller's fault).
  */
-export async function postPredict(body) {
-  const res = await fetch(`${BASE}/api/predict`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.message || "Prediction failed");
-  return json;
+export async function postPredict(body, { maxRetries = 2, baseDelayMs = 5000 } = {}) {
+  let lastErr;
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    try {
+      const res = await fetch(`${BASE}/api/predict`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(body),
+      });
+      const json = await res.json();
+
+      // 400 / 422 = user input problem — never retry
+      if (res.status === 400 || res.status === 422) {
+        throw new Error(json.message || "Invalid request.");
+      }
+
+      // 5xx / 503 / 504 — retryable server errors
+      if (!res.ok) {
+        const err = new Error(json.message || `Server error ${res.status}`);
+        err.status = res.status;
+        err.retryable = true;
+        throw err;
+      }
+
+      return json; // success ✓
+
+    } catch (err) {
+      lastErr = err;
+
+      // Non-retryable errors (validation, parse errors, explicit user errors)
+      if (!err.retryable && err.status !== undefined) throw err;
+
+      // Network errors (Failed to fetch, etc.) and 5xx are retryable
+      const isTransient =
+        err.retryable ||
+        err.message === "Failed to fetch" ||
+        err.message?.includes("network") ||
+        err.message?.includes("timeout") ||
+        err.status >= 500;
+
+      if (!isTransient || attempt > maxRetries) throw err;
+
+      const delay = baseDelayMs * attempt; // 5s, 10s
+      console.warn(
+        `[postPredict] Attempt ${attempt}/${maxRetries + 1} failed: "${err.message}". ` +
+        `Retrying in ${delay / 1000}s…`
+      );
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
 }
 
 // ── Warmup ─────────────────────────────────────────────────────────────────────
 
 /**
  * GET /api/predict/warmup
- * Silently pings the Python ML service so it wakes from Render free-tier sleep.
- * Call this on Predictor page mount — no await needed, fire and forget.
+ * Pings the Python ML service so it wakes from Render free-tier sleep.
+ * Returns { success, modelReady, message } — use this to track warmup state.
  */
-export function warmupML() {
-  fetch(`${BASE}/api/predict/warmup`).catch(() => {
-    // Silently ignore — this is best-effort
-  });
+export async function warmupML() {
+  try {
+    const res  = await fetch(`${BASE}/api/predict/warmup`);
+    const json = await res.json();
+    return json; // { success, modelReady, message }
+  } catch {
+    return { success: false, modelReady: false, message: "Could not reach server." };
+  }
+}
+
+/**
+ * GET /api/predict/status
+ * Returns in-memory ML service status that Node.js keeps from keep-warm pings.
+ * Very fast (no outbound request from Node to Flask).
+ */
+export async function fetchMLStatus() {
+  try {
+    const res  = await fetch(`${BASE}/api/predict/status`);
+    const json = await res.json();
+    return json.ml; // { alive, modelReady, lastPingAt, lastError }
+  } catch {
+    return { alive: false, modelReady: false, lastPingAt: null, lastError: "Network error" };
+  }
 }
