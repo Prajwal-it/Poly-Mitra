@@ -2,6 +2,7 @@ const express = require('express');
 const axios   = require('axios');
 
 const router = express.Router();
+const { fallbackPredict } = require('../utils/fallbackPredictor');
 
 const ML_URL = process.env.PYTHON_ML_URL || 'http://localhost:3000';
 
@@ -189,23 +190,53 @@ router.post('/', async (req, res) => {
     return res.status(200).json(mlResponse.data);
 
   } catch (err) {
-    // Flask returned a structured error (400, 422, 500, 503)
-    if (err.response) {
+    // Flask returned a structured error (400, 422) — do NOT fall back, these are input problems
+    if (err.response && (err.response.status === 400 || err.response.status === 422)) {
       return res.status(err.response.status).json(err.response.data);
     }
 
-    // Flask is unreachable (after all retries)
+    // ── Flask is down / timed out / errored — try the JS historical fallback ──
+    // This ensures students ALWAYS get a prediction even if the ML service is sleeping.
+    console.warn('[predictRoutes] ML service unreachable after retries — using historical fallback:', err.message);
+
+    try {
+      const fb = fallbackPredict({
+        studentPercentage: payload.percentage,
+        collegeName:       payload.college,
+        branchName:        payload.branch,
+        category:          payload.category,
+        roundNo:           payload.round,
+        collegeType:       payload.college_type,
+        quota:             payload.quota,
+      });
+
+      if (fb.found) {
+        console.log('[predictRoutes] Fallback prediction succeeded.');
+        return res.status(200).json({
+          success: true,
+          data:    fb.data,
+          // Surface the fallback notice so the frontend can optionally show it
+          _fallback: true,
+        });
+      }
+    } catch (fbErr) {
+      console.error('[predictRoutes] Fallback predictor threw:', fbErr.message);
+    }
+
+    // Fallback also found nothing — now surface the real error
+    if (err.response) {
+      return res.status(err.response.status).json(err.response.data);
+    }
     if (err.code === 'ECONNREFUSED') {
       return res.status(503).json({
         success: false,
-        message: 'ML prediction service is not reachable. It may still be starting up. Please wait 30–60 seconds and try again.',
+        message: 'Prediction service is not reachable and no historical data matched your inputs. Please try again in 60 seconds.',
       });
     }
-
     if (err.code === 'ETIMEDOUT' || err.code === 'ECONNABORTED') {
       return res.status(504).json({
         success: false,
-        message: 'ML prediction service timed out even after retries. The server may be under heavy load — please try again in a minute.',
+        message: 'Prediction service timed out and no historical data matched your inputs. Please try again in a minute.',
       });
     }
 

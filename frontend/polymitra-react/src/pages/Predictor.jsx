@@ -65,9 +65,10 @@ export default function Predictor() {
   const [metaLoading,    setMetaLoading]    = useState(true);
   const [branchesLoading,setBranchesLoading]= useState(false);
 
-  const [loading,  setLoading]  = useState(false);
-  const [result,   setResult]   = useState(null);
-  const [error,    setError]    = useState(null);
+  const [loading,    setLoading]    = useState(false);
+  const [result,     setResult]     = useState(null);
+  const [error,      setError]      = useState(null);
+  const [isFallback, setIsFallback] = useState(false);
 
   // ML service warmup tracking
   const [warmupState, setWarmupState] = useState("checking"); // "checking"|"warming"|"ready"|"error"
@@ -174,6 +175,7 @@ export default function Predictor() {
     setLoading(true);
     setResult(null);
     setError(null);
+    setIsFallback(false);
 
     const payload = {
       percentage: Number(percentage),
@@ -189,6 +191,7 @@ export default function Predictor() {
       // postPredict already has built-in retry (2 retries, 5s + 10s back-off)
       const res = await postPredict(payload);
       setResult(res.data);
+      setIsFallback(res._fallback === true);
     } catch (e) {
       const msg    = e.message || "";
       const status = e.status;
@@ -385,7 +388,7 @@ export default function Predictor() {
             {loading && <LoadingResults />}
             {!loading && error  && <ErrorState message={error} onRetry={onPredict} />}
             {!loading && !error && !result && <EmptyPrediction />}
-            {!loading && !error && result  && <ResultCard result={result} college={college} branch={branch} />}
+            {!loading && !error && result  && <ResultCard result={result} college={college} branch={branch} isFallback={isFallback} />}
           </div>
         </div>
       </section>
@@ -483,7 +486,7 @@ function ErrorState({ message, onRetry }) {
   );
 }
 
-function ResultCard({ result, college, branch }) {
+function ResultCard({ result, college, branch, isFallback }) {
   const {
     predicted_cutoff,
     student_percentage,
@@ -538,6 +541,12 @@ function ResultCard({ result, college, branch }) {
         <Progress value={probability} className="h-2" />
       </div>
 
+      {isFallback && (
+        <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-1.5">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          Prediction server was temporarily unavailable — this result is based on <strong>2025 historical cutoff data</strong> and is still a reliable estimate.
+        </p>
+      )}
       <p className="text-[11px] text-muted-foreground flex items-start gap-1.5 border-t border-border pt-4">
         <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
         Prediction is based on the ML model trained on CAP 2023–2025 data. Actual cutoffs may vary.
